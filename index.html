@@ -61,6 +61,8 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .pop .t{font-weight:600}
 .pop .c{font-family:var(--f-mono);font-size:13px;color:var(--ink-2)}
 .toggle-panel{display:none}
+.legs{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
+.legs b{color:var(--ink);font-weight:600}
 @media (max-width:640px){
   .panel{left:8px;right:8px;width:auto;top:auto;bottom:calc(8px + env(safe-area-inset-bottom,0px));max-height:55%}
   .panel.min .sec.opt{display:none}
@@ -103,6 +105,15 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
       <div><b id="rtime">–</b><span>de carro (aprox.)</span></div>
     </div>
     <p class="hint" id="rhint">Escolhe dois locais, ou toca no mapa e usa “Partir daqui” / “Ir para aqui”.</p>
+  </div>
+  <div class="sec">
+    <div class="lab">Rota completa</div>
+    <div class="row"><select id="preset" aria-label="Rota completa"></select><button class="pri" id="goP">Ver</button></div>
+    <div class="result" id="resP" hidden>
+      <div><b id="pdist">–</b><span>total</span></div>
+      <div><b id="ptime">–</b><span>de carro (aprox.)</span></div>
+    </div>
+    <ol class="legs" id="legs" hidden></ol>
   </div>
   <div class="sec opt">
     <div class="lab">Mostrar</div>
@@ -227,8 +238,13 @@ const G=window.GRAPH, NN=G.n.length;
 const adj=Array.from({length:NN},()=>[]);
 G.e.forEach((ed,i)=>{adj[ed[0]].push([ed[1],i]);adj[ed[1]].push([ed[0],i])});
 const cost=ed=>ed[2]/(SPEED[ed[3]]||40);
+// rede principal: as rotas só se agarram a estradas ligadas ao resto do mapa
+const compo=new Int32Array(NN).fill(-1);let bigC=0,bigN=0;
+for(let i=0,c=0;i<NN;i++){if(compo[i]>=0)continue;let st=[i],n=0;compo[i]=c;
+  while(st.length){const u=st.pop();n++;for(const [v] of adj[u])if(compo[v]<0){compo[v]=c;st.push(v)}}
+  if(n>bigN){bigN=n;bigC=c}c++}
 function snap(e,n){let best=null;
-  G.e.forEach((ed,i)=>{const g=ed[4];let acc=0;
+  G.e.forEach((ed,i)=>{if(compo[ed[0]]!==bigC)return;const g=ed[4];let acc=0;
     for(let k=0;k+3<g.length;k+=2){const ax=g[k],ay=g[k+1],bx=g[k+2],by=g[k+3],dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy)||1e-6;
       let t=((e-ax)*dx+(n-ay)*dy)/(L*L);t=Math.max(0,Math.min(1,t));const px=ax+dx*t,py=ay+dy*t,d=Math.hypot(e-px,n-py);
       if(!best||d<best.d)best={d,i,k,t,along:acc+L*t,px,py};acc+=L}
@@ -274,17 +290,23 @@ function route(A,B){
 let R=null;
 function drawRoute(){if(!R)return;
   ctx.lineJoin='round';ctx.lineCap='round';
-  const path=()=>{ctx.beginPath();R.pts.forEach((p,i)=>i?ctx.lineTo(sx(p[0]),sy(p[1])):ctx.moveTo(sx(p[0]),sy(p[1])))};
+  const path=()=>{ctx.beginPath();R.pts.forEach((p,i)=>i&&!p.brk?ctx.lineTo(sx(p[0]),sy(p[1])):ctx.moveTo(sx(p[0]),sy(p[1])))};
   const w=Math.max(5,Math.min(12,s*14));
   path();ctx.strokeStyle='rgba(255,255,255,.95)';ctx.lineWidth=w+4;ctx.stroke();
   path();ctx.strokeStyle=css('--accent');ctx.lineWidth=w;ctx.stroke();
   // ligação a pé do ponto ao alcatrão
   ctx.setLineDash([4,5]);ctx.lineWidth=2;ctx.strokeStyle=css('--accent');
-  [[R.raw[0],R.A],[R.raw[1],R.B]].forEach(([p,q])=>{ctx.beginPath();ctx.moveTo(sx(p[0]),sy(p[1]));ctx.lineTo(sx(q[0]),sy(q[1]));ctx.stroke()});
+  R.walks.forEach(([p,q])=>{ctx.beginPath();ctx.moveTo(sx(p[0]),sy(p[1]));ctx.lineTo(sx(q[0]),sy(q[1]));ctx.stroke()});
   ctx.setLineDash([]);
-  [[R.raw[0],'A','#2b8a3e'],[R.raw[1],'B',css('--accent')]].forEach(([p,l,c])=>{const X=sx(p[0]),Y=sy(p[1]);
+  R.marks.forEach(([p,l,c])=>{const X=sx(p[0]),Y=sy(p[1]);
     ctx.beginPath();ctx.arc(X,Y,12,0,7);ctx.fillStyle=c;ctx.fill();ctx.lineWidth=2.5;ctx.strokeStyle='#fff';ctx.stroke();
     ctx.fillStyle='#fff';ctx.font='700 15px "Barlow Condensed",sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(l,X,Y+.5)})}
+function single(r){if(!r)return null;return {pts:r.pts,meters:r.meters,mins:r.mins,
+  walks:[[r.raw[0],r.A],[r.raw[1],r.B]],marks:[[r.raw[0],'A','#2b8a3e'],[r.raw[1],'B',css('--accent')]],all:r.pts.concat(r.raw)}}
+function fitTo(all){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;all.forEach(p=>{x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);y0=Math.min(y0,p[1]);y1=Math.max(y1,p[1])});
+  const padL=VW>640?360:20,padB=VW>640?20:VH*0.5;
+  const sw=(VW-padL-40)/(x1-x0+200),sh=(VH-padB-60)/(y1-y0+200);s=Math.min(1.5,Math.max(0.03,Math.min(sw,sh)));
+  cx=(x0+x1)/2-(padL-20)/2/s;cy=(y0+y1)/2-(padB-40)/2/s}
 
 /* ---------- painel ---------- */
 const near=(e,no)=>CITIES.reduce((b,c)=>{const d=Math.hypot(c[1]-e,c[2]-no);return d<b.d?{d,n:c[0]}:b},{d:1e9}).n;
@@ -299,19 +321,52 @@ const fromS=document.getElementById('from'),toS=document.getElementById('to');
 fill(fromS,String(places.findIndex(p=>p.n==='Los Diablos')));fill(toS,String(places.findIndex(p=>p.n==='Lakeside')));
 const getP=(sel,k)=>sel.value==='pt'?custom[k]:[places[+sel.value].e,places[+sel.value].no];
 function run(fitView){const A=getP(fromS,'A'),B=getP(toS,'B');if(!A||!B)return;
-  R=route(A,B);const res=document.getElementById('res');
+  hideP();R=single(route(A,B));const res=document.getElementById('res');
   if(!R){res.hidden=true;document.getElementById('rhint').textContent='Não há ligação por estrada entre estes dois pontos.';req();return}
   res.hidden=false;document.getElementById('rhint').textContent='A rota segue as estradas do mapa. O tracejado é o caminho a pé até à estrada.';
-  document.getElementById('rdist').textContent=(R.meters/1000).toFixed(1).replace('.',',')+' km';
-  const m=Math.max(1,Math.round(R.mins));document.getElementById('rtime').textContent=m+' min';
-  if(fitView){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;R.pts.concat(R.raw).forEach(p=>{x0=Math.min(x0,p[0]);x1=Math.max(x1,p[0]);y0=Math.min(y0,p[1]);y1=Math.max(y1,p[1])});
-    const padL=VW>640?360:20,padB=VW>640?20:VH*0.5;
-    const sw=(VW-padL-40)/(x1-x0+200),sh=(VH-padB-60)/(y1-y0+200);s=Math.min(1.5,Math.max(0.03,Math.min(sw,sh)));
-    cx=(x0+x1)/2-(padL-20)/2/s;cy=(y0+y1)/2-(padB-40)/2/s}
+  document.getElementById('rdist').textContent=km(R.meters);
+  document.getElementById('rtime').textContent=mn(R.mins);
+  if(fitView)fitTo(R.all);
   req()}
+const km=m=>(m/1000).toFixed(1).replace('.',',')+' km', mn=x=>Math.max(1,Math.round(x))+' min';
+/* ---------- rotas completas (campo → processador → venda) ---------- */
+const PRESETS=[
+ ['Cocaína',['Campo de Cocaina','Processador de Cocaina','*Traficante']],
+ ['Heroína',['Campo Heroina','Processador de Heroina','*Traficante']],
+ ['Maconha',['Campo de Maconha','Processador de Maconha','*Traficante']],
+ ['Aço',['Campo de Aço','Processador de Aço','Comprador de Aço']],
+ ['Madeira',['Campo de Madeira','Processador de Madeira','Comprador de Tábuas']],
+ ['Areia / Vidro',['Campo de Areia','Processador de Areia','Comprador de Vidro']],
+ ['Minérios',['Mina','Processador de Minerios','Comprador de Minerios']],
+ ['Petróleo',['Plataforma de Petroleo','Processador Petroleo','Comprador de Petroleo']],
+ ['Maçã',['Campo de Maça','Processador de Maça']]];
+const presetS=document.getElementById('preset');
+PRESETS.forEach(([n,st],i)=>{const o=document.createElement('option');o.value=i;o.textContent=n+': '+st.map(x=>x.replace('*','')).join(' → ');presetS.appendChild(o)});
+function hideP(){document.getElementById('resP').hidden=true;document.getElementById('legs').hidden=true}
+function runPreset(){const [nome,st]=PRESETS[+presetS.value];
+  let stops=[];const pts=[],walks=[],marks=[],all=[],legs=[];let meters=0,mins=0;
+  for(let i=0;i<st.length;i++){const k=st[i];const cand=POI.filter(p=>p[0]===k.replace('*',''));
+    if(!cand.length){alertLeg('Não encontrei '+k);return}
+    if(i===0||!k.startsWith('*')){stops.push({n:cand[0][0],p:[cand[0][1],cand[0][2]]});continue}
+    // escolhe o mais rápido a partir da paragem anterior
+    const prev=stops[stops.length-1].p;let best=null;
+    cand.forEach(c=>{const r=route(prev,[c[1],c[2]]);if(r&&(!best||r.mins<best.r.mins))best={r,c}});
+    stops.push({n:best.c[0]+' ('+near(best.c[1],best.c[2])+')',p:[best.c[1],best.c[2]]})}
+  for(let i=0;i+1<stops.length;i++){const r=route(stops[i].p,stops[i+1].p);if(!r){alertLeg('Sem ligação por estrada entre '+stops[i].n+' e '+stops[i+1].n);return}
+    r.pts.forEach((p,j)=>{const q=[p[0],p[1]];if(j===0)q.brk=true;pts.push(q)});
+    walks.push([r.raw[0],r.A],[r.raw[1],r.B]);meters+=r.meters;mins+=r.mins;all.push(...r.pts,...r.raw);
+    legs.push(`<b>${stops[i].n}</b> → <b>${stops[i+1].n}</b>: ${km(r.meters)} · ${mn(r.mins)}`)}
+  stops.forEach((s,i)=>marks.push([s.p,String(i+1),i===0?'#2b8a3e':(i===stops.length-1?css('--accent'):'#e8590c')]));
+  R={pts,walks,marks,meters,mins,all};
+  document.getElementById('res').hidden=true;document.getElementById('rhint').textContent='';
+  document.getElementById('resP').hidden=false;document.getElementById('pdist').textContent=km(meters);document.getElementById('ptime').textContent=mn(mins);
+  const L=document.getElementById('legs');L.innerHTML=legs.map(x=>'<li>'+x+'</li>').join('');L.hidden=false;
+  fitTo(all);req()}
+function alertLeg(msg){document.getElementById('resP').hidden=true;R=null;req();const L=document.getElementById('legs');L.innerHTML='<li>'+msg+'</li>';L.hidden=false}
+document.getElementById('goP').onclick=runPreset;
 document.getElementById('go').onclick=()=>run(true);
 document.getElementById('swap').onclick=()=>{const a=fromS.value,b=toS.value,ca=custom.A;custom.A=custom.B;custom.B=ca;fromS.value=b;toS.value=a;if(R)run(false)};
-document.getElementById('clear').onclick=()=>{R=null;document.getElementById('res').hidden=true;document.getElementById('rhint').textContent='Escolhe dois locais, ou toca no mapa e usa “Partir daqui” / “Ir para aqui”.';req()};
+document.getElementById('clear').onclick=()=>{R=null;hideP();document.getElementById('res').hidden=true;document.getElementById('rhint').textContent='Escolhe dois locais, ou toca no mapa e usa “Partir daqui” / “Ir para aqui”.';req()};
 ['lyNames','lyGrid'].forEach(id=>document.getElementById(id).onchange=req);
 const catsEl=document.getElementById('cats');
 Object.entries(CAT).forEach(([k,c])=>{const n=POI.filter(p=>p[3]===k).length;const l=document.createElement('label');
