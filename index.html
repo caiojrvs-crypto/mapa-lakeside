@@ -132,9 +132,9 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
       <div class="lab" style="margin:0">Voltas e tempo total</div>
       <div class="row"><select id="veh" aria-label="Veículo"></select></div>
       <div class="grid3">
-        <label>Preço / un.<input id="fPreco" type="number" min="0" step="1" inputmode="numeric" placeholder="?"></label>
-        <label>Apanha (min)<input id="fApanha" type="number" min="0" step="0.5" inputmode="decimal" title="Minutos para encher o veículo todo no campo"></label>
-        <label>Proc. (s/un.)<input id="fSeg" type="number" min="0" step="0.05" inputmode="decimal" title="Segundos de processamento por unidade"></label>
+        <label><span id="lPreco">Preço / un.</span><input id="fPreco" type="number" min="0" step="1" inputmode="numeric" placeholder="?"></label>
+        <label><span id="lApanha">Apanha (min)</span><input id="fApanha" type="number" min="0" step="0.5" inputmode="decimal" title="Minutos para encher o veículo todo no campo"></label>
+        <label><span id="lSeg">Proc. (s/un.)</span><input id="fSeg" type="number" min="0" step="0.05" inputmode="decimal" title="Segundos de processamento por unidade"></label>
       </div>
       <table class="lt" id="lapT"></table>
       <p class="verd" id="lapV"></p>
@@ -365,6 +365,7 @@ const PRESETS=[
  ['Areia / Vidro',['Campo de Areia','Processador de Areia','Comprador de Vidro']],
  ['Minérios',['Mina','Processador de Minerios','Comprador de Minerios']],
  ['Petróleo',['Plataforma de Petroleo','Processador Petroleo','Comprador de Petroleo']],
+ ['Metanfetamina',['Vendedor de metilamina','Vendedor de fenilacetona','*Traficante']],
  ['Maçã',['Campo de Maça','Processador de Maça']]];
 const presetS=document.getElementById('preset');
 PRESETS.forEach(([n,st],i)=>{const o=document.createElement('option');o.value=i;o.textContent=n+': '+st.map(x=>x.replace('*','')).join(' → ');presetS.appendChild(o)});
@@ -378,7 +379,9 @@ const FARM={
  'Madeira':{cru:'Tronco',fim:'Tábua',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
  'Areia / Vidro':{cru:'Areia',fim:'Vidro',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
  'Minérios':{cru:'Minério',fim:'Lingote',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
- 'Petróleo':{cru:'Petróleo bruto',fim:'Barril',wr:2,wp:1,preco:313,apanha:10,seg:0.2}};
+ 'Petróleo':{cru:'Petróleo bruto',fim:'Barril',wr:2,wp:1,preco:313,apanha:10,seg:0.2},
+ // metanfetamina (script do mod): 1 metilamina + 1 fenilacetona (1 kg cada) → 1 meta (1,6 kg); 20 a 30 por lote; 10 ações com 10 s entre elas
+ 'Metanfetamina':{meta:true,fim:'Meta pura',wr:2,wp:1.6,preco:0,apanha:0,seg:2}};
 const VEH=[['Ural 4320 Transport Covered',1350],['Ural 4320 Transport',1050],['M923A1 Arsenal',900],['M923A1 Transport',650],
  ['MiniTruck',400],['Boxtruck Freezer',400],['Boxtruck Tipper',250],['Gatoma',140],['S1203 Cargo',115],['UAZ452 Cargo',95],['Carro (40 kg)',40]];
 const vehS=document.getElementById('veh');
@@ -392,8 +395,21 @@ function farmCfg(nome){const f=Object.assign({},FARM[nome]),u=store.get('farm:'+
 function lapsOpen(nome,tCP,tPS,tSC){if(!FARM[nome]){LAP=null;document.getElementById('laps').hidden=true;return}
   LAP={nome,tCP,tPS,tSC};const f=farmCfg(nome);
   document.getElementById('fPreco').value=f.preco||'';document.getElementById('fApanha').value=f.apanha;document.getElementById('fSeg').value=f.seg;
+  const M=!!f.meta;document.getElementById('lPreco').textContent=M?'Venda / un.':'Preço / un.';
+  document.getElementById('lApanha').textContent=M?'Custo ingred./un.':'Apanha (min)';document.getElementById('lSeg').textContent=M?'Min por lote':'Proc. (s/un.)';
+  document.getElementById('fApanha').title=M?'Preço de 1 metilamina + 1 fenilacetona':'Minutos para encher o veículo todo no campo';
+  document.getElementById('fSeg').title=M?'Minutos por lote na mesa (10 ações certas, ~2 min)':'Segundos de processamento por unidade';
+  document.getElementById('fApanha').value=M?(f.apanha||''):f.apanha;
   document.getElementById('laps').hidden=false;lapsCalc()}
-function lapsCalc(){if(!LAP)return;const f=farmCfg(LAP.nome),C=VEH[+vehS.value][1];
+function metaCalc(f){const cur=+vehS.value,drive=LAP.tCP+LAP.tPS+LAP.tSC,useVal=f.preco>0;
+  const rows=VEH.map(([n,C],i)=>{const N=Math.floor(C/f.wr),lotes=Math.ceil(N/25),cook=lotes*f.seg,tot=drive+cook;
+    const lucro=N*(f.preco-(f.apanha||0));return {i,n,C,N,lotes,cook,tot,lucro,ph:lucro/tot*60}}).filter((r,i,a)=>a.findIndex(x=>x.C===r.C)===i||r.i===cur);
+  document.getElementById('lapT').innerHTML='<tr><th>Veículo</th><th>Meta</th><th>Tempo</th><th>'+(f.apanha?'Lucro':'Valor')+'</th><th>Por hora</th></tr>'+
+    rows.map(r=>`<tr class="${r.i===cur?'best':''}" title="${r.lotes} lotes na mesa · ${hm(r.cook)} a cozinhar · condução ${hm(drive)}"><td>${r.n.replace(/ Transport| Cargo/,'').replace('Carro (40 kg)','Carro')}</td><td>${r.N.toLocaleString('pt-PT')}</td><td>${hm(r.tot)}</td><td>${useVal?money(r.lucro):'–'}</td><td>${useVal?money(r.ph):Math.round(r.N/r.tot*60)+' un.'}</td></tr>`).join('');
+  const r=rows.find(x=>x.i===cur);
+  document.getElementById('lapV').innerHTML=`Com o <b>${r.n}</b>: ${r.N.toLocaleString('pt-PT')} metilamina + ${r.N.toLocaleString('pt-PT')} fenilacetona (${r.C} kg) → <b>~${r.N.toLocaleString('pt-PT')} meta</b> em ${r.lotes} lotes. Total <b>${hm(r.tot)}</b> (condução ${hm(drive)}, mesa ${hm(r.cook)})${useVal?', <b>'+money(r.ph)+'/h</b>':''}.<br>Não há voltas: os vendedores vendem quanto quiseres, o limite é o peso dos ingredientes (2 kg por meta).`;
+  document.getElementById('lapN').textContent='Regras do mod: cada lote dá 20 a 30 metas (média 25) e gasta 1 metilamina + 1 fenilacetona por meta. São 10 ações certas com 10 s entre elas (~2 min). 0 erros = pura, 1 erro = boa, 2 = ruim, 3 = a mesa explode. Precisa de pelo menos 3 polícias online, roupa química e máscara de gás; a mesa leva 250 kg e não pode ficar em casas nem bases. A rota conta a mesa montada junto ao vendedor de fenilacetona. A meta pesa 1,6 kg, por isso cabe sempre no veículo depois de cozinhada.'+(useVal?'':' Escreve o preço de venda e o custo dos ingredientes para ver o lucro.')}
+function lapsCalc(){if(!LAP)return;const f=farmCfg(LAP.nome),C=VEH[+vehS.value][1];if(f.meta)return metaCalc(f);
   const rows=[];let units=0,coll=0,proc=0;
   for(let k=1;k<=4;k++){
     const livre=Math.max(0,C-units*f.wp);const raw=Math.floor(livre/f.wr+1e-9);
