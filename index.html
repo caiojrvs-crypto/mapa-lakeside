@@ -64,6 +64,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .legs{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
 .legs b{color:var(--ink);font-weight:600}
 [hidden]{display:none!important}
+button.mini{padding:2px 8px;font-size:12px;margin-left:6px;vertical-align:middle}
 .laps{display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--line);padding-top:10px}
 .laps .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
 .laps label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2)}
@@ -159,7 +160,7 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
       <div class="sw" style="background:#808080;height:12px"></div><div>Edifício</div>
       <div class="sw" style="background:var(--accent);height:5px"></div><div>Rota escolhida</div>
     </div>
-    <p class="hint">A grelha é a mesma do jogo: cada quadrado grande tem 1 km e os números são centenas de metros (ex.: <b>080 084</b>).</p>
+    <p class="hint">A grelha é a mesma do jogo: cada quadrado grande tem 1 km e os números são centenas de metros (ex.: <b>080 084</b>). Ao aproximar aparecem quadrados de 10 m: toca num ponto para veres a grelha de 4 números (ex.: <b>0425 0712</b>) e copiá-la, por exemplo para registar uma casa.</p>
   </div>
 </aside>
 
@@ -194,6 +195,7 @@ const sx=e=>(e-cx)*s+VW/2, sy=n=>(cy-n)*s+VH/2, ex=px=>(px-VW/2)/s+cx, ny=py=>cy
 let pending=false;function req(){cx=Math.max(0,Math.min(W,cx));cy=Math.max(0,Math.min(W,cy));if(!pending){pending=true;requestAnimationFrame(draw)}}
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const g3=v=>String(Math.max(0,Math.floor(v/100))).padStart(3,'0');
+const g4=v=>String(Math.max(0,Math.min(1023,Math.floor(v/10)))).padStart(4,'0');
 
 function drawTiles(z){const n=2**z,tm=W/n;let ok=true;
   const x0=Math.max(0,Math.floor(ex(0)/tm)),x1=Math.min(n-1,Math.floor(ex(VW)/tm));
@@ -219,6 +221,10 @@ function drawGrid(){const st=gridStep();ctx.lineWidth=1;
     const X=Math.round(sx(v))+.5,Y=Math.round(sy(v))+.5;
     ctx.beginPath();ctx.moveTo(X,sy(W));ctx.lineTo(X,sy(0));ctx.stroke();
     ctx.beginPath();ctx.moveTo(sx(0),Y);ctx.lineTo(sx(W),Y);ctx.stroke();}
+  if(s*10>=7){ctx.strokeStyle='rgba(20,30,25,.08)';ctx.lineWidth=1;
+    const a=Math.max(0,Math.floor(ex(0)/10)*10),b=Math.min(W,ex(VW)),c=Math.max(0,Math.floor(ny(VH)/10)*10),d=Math.min(W,ny(0));
+    ctx.beginPath();for(let v=a;v<=b;v+=10){if(v%100===0)continue;const X=Math.round(sx(v))+.5;ctx.moveTo(X,sy(W));ctx.lineTo(X,sy(0))}
+    for(let v=c;v<=d;v+=10){if(v%100===0)continue;const Y=Math.round(sy(v))+.5;ctx.moveTo(sx(0),Y);ctx.lineTo(sx(W),Y)}ctx.stroke()}
 }
 function chip(txt,x,y,align){ctx.font='500 12px "IBM Plex Mono",monospace';const w=ctx.measureText(txt).width+8;
   let X=align==='c'?x-w/2:x;ctx.fillStyle=css('--chip');ctx.fillRect(X,y-9,w,18);ctx.fillStyle=css('--ink');ctx.textBaseline='middle';ctx.textAlign='left';ctx.fillText(txt,X+4,y)}
@@ -485,7 +491,7 @@ const pop=document.getElementById('pop');let popAt=null;
 cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,[e.clientX,e.clientY]);moved=false;cv.classList.add('drag');
   if(pts.size===2){const [a,b]=[...pts.values()];pinch={d:Math.hypot(a[0]-b[0],a[1]-b[1]),s}}});
 cv.addEventListener('pointermove',e=>{
-  document.getElementById('cval').textContent=g3(ex(e.clientX))+' '+g3(ny(e.clientY));
+  document.getElementById('cval').textContent=g4(ex(e.clientX))+' '+g4(ny(e.clientY));
   if(!pts.has(e.pointerId))return;const p=pts.get(e.pointerId);
   if(pts.size===1){const dx=e.clientX-p[0],dy=e.clientY-p[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;cx-=dx/s;cy+=dy/s;pts.set(e.pointerId,[e.clientX,e.clientY]);if(moved)pop.hidden=true;req()}
   else if(pts.size===2&&pinch){pts.set(e.pointerId,[e.clientX,e.clientY]);const [a,b]=[...pts.values()];const d=Math.hypot(a[0]-b[0],a[1]-b[1]);
@@ -500,7 +506,9 @@ document.getElementById('zfit').onclick=()=>{pop.hidden=true;fit()};
 function nearestPlace(E,N){let b=null;places.forEach(p=>{const d=Math.hypot(p.e-E,p.no-N);if(!b||d<b.d)b={d,p}});return b&&b.d*s<22?b.p:null}
 function click(px,py){const E=ex(px),N=ny(py);const p=nearestPlace(E,N);popAt=p?[p.e,p.no]:[E,N];
   document.getElementById('popT').textContent=p?p.n:'Ponto no mapa';
-  document.getElementById('popC').textContent='Grelha '+g3(popAt[0])+' '+g3(popAt[1]);
+  document.getElementById('popC').innerHTML='Grelha <b>'+g4(popAt[0])+' '+g4(popAt[1])+'</b> <button id="popCopy" class="mini" title="Copiar para registar a casa no Discord">Copiar</button>';
+  document.getElementById('popCopy').onclick=ev=>{ev.stopPropagation();const txt=g4(popAt[0])+' '+g4(popAt[1]);const ok=()=>{ev.target.textContent='Copiado ✓'};
+    try{navigator.clipboard.writeText(txt).then(ok,()=>{prompt('Copia a localização:',txt)})}catch(e){prompt('Copia a localização:',txt)}};
   pop.style.left=Math.min(VW-110,Math.max(110,px))+'px';pop.style.top=Math.max(120,py)+'px';pop.hidden=false;
   pop.dataset.place=p?String(places.indexOf(p)):''}
 document.getElementById('popA').onclick=()=>{const i=pop.dataset.place;if(i)fromS.value=i;else{custom.A=popAt;fromS.value='pt'}pop.hidden=true;run(false)};
