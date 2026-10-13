@@ -376,18 +376,18 @@ const PRESETS=[
 const presetS=document.getElementById('preset');
 PRESETS.forEach(([n,st],i)=>{const o=document.createElement('option');o.value=i;o.textContent=n+': '+st.map(x=>x.replace('*','')).join(' → ');presetS.appendChild(o)});
 /* ---------- voltas: tempo total com apanha e processamento ---------- */
-// pesos tirados dos ficheiros do Legacy; apanha = min para encher o veículo; seg = s de processamento por unidade
+// preços de venda da lista do telemóvel do jogo (13/10/2026); pesos tirados dos ficheiros do Legacy; apanha = min para encher o veículo; seg = s de processamento por unidade
 const FARM={
- 'Cocaína':{cru:'Folha de coca',fim:'Cocaína',wr:2,wp:1,preco:0,apanha:10,seg:0.2},
- 'Heroína':{cru:'Papoula',fim:'Heroína',wr:2,wp:1,preco:0,apanha:10,seg:0.2},
- 'Maconha':{cru:'Folha de maconha',fim:'Maconha',wr:2,wp:1,preco:0,apanha:10,seg:0.2},
+ 'Cocaína':{cru:'Folha de coca',fim:'Cocaína',wr:2,wp:1,preco:1517,apanha:10,seg:0.2},
+ 'Heroína':{cru:'Papoula',fim:'Heroína',wr:2,wp:1,preco:1595,apanha:10,seg:0.2},
+ 'Maconha':{cru:'Folha de maconha',fim:'Maconha',wr:2,wp:1,preco:1220,apanha:10,seg:0.2},
  'Aço':{cru:'Aço bruto',fim:'Barra de aço',wr:1,wp:0.5,preco:280,apanha:10,seg:0.2,medido:true},
- 'Madeira':{cru:'Tronco',fim:'Tábua',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
- 'Areia / Vidro':{cru:'Areia',fim:'Vidro',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
+ 'Madeira':{cru:'Tronco',fim:'Tábua',wr:1,wp:0.5,preco:281,apanha:10,seg:0.2},
+ 'Areia / Vidro':{cru:'Areia',fim:'Vidro',wr:1,wp:0.5,preco:154,apanha:10,seg:0.2},
  'Minérios':{cru:'Minério',fim:'Lingote',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
- 'Petróleo':{cru:'Petróleo bruto',fim:'Barril',wr:2,wp:1,preco:313,apanha:10,seg:0.2},
+ 'Petróleo':{cru:'Petróleo bruto',fim:'Barril',wr:2,wp:1,preco:626,apanha:10,seg:0.2},
  // metanfetamina (script do mod): 1 metilamina + 1 fenilacetona (1 kg cada) → 1 meta (1,6 kg); 20 a 30 por lote; 10 ações com 10 s entre elas
- 'Metanfetamina':{meta:true,fim:'Meta pura',wr:2,wp:1.6,preco:0,apanha:0,seg:2}};
+ 'Metanfetamina':{meta:true,fim:'Meta pura',wr:2,wp:1.6,preco:2893,apanha:1000,seg:2}};
 const VEH=[['Ural 4320 Transport Covered',1350],['Ural 4320 Transport',1050],['M923A1 Arsenal',900],['M923A1 Transport',650],
  ['MiniTruck',400],['Boxtruck Freezer',400],['Boxtruck Tipper',250],['Gatoma',140],['S1203 Cargo',115],['UAZ452 Cargo',95],['Carro (40 kg)',40]];
 const vehS=document.getElementById('veh');
@@ -438,7 +438,8 @@ function lapsCalc(){if(!LAP)return;const f=farmCfg(LAP.nome),C=VEH[+vehS.value][
   document.getElementById('lapV').innerHTML=`Melhor: <b>${b.k} volta${b.k>1?'s':''}</b> antes de vender — ${hm(b.tot)} no total (condução ${hm(b.drive)}, apanha ${hm(b.coll)}, processamento ${hm(b.proc)})${useVal?', '+money(b.val)+' por ciclo, <b>'+money(b.ph)+'/h</b>':''}.<br>`+parts.join('<br>');
   const notas=[];
   notas.push(`Cada volta carrega ${f.cru.toLowerCase()} até encher o espaço livre (${f.cru.toLowerCase()} ${String(f.wr).replace('.',',')} kg, ${f.fim.toLowerCase()} ${String(f.wp).replace('.',',')} kg). O tempo conta desde o campo até voltar ao campo depois de vender.`);
-  if(!useVal)notas.push('Sem preço ainda: escreve o preço de venda por unidade para ver o valor e o ganho por hora.');
+  if(LAP.nome==='Minérios')notas.push('Preço por lingote (telemóvel do jogo): ferro 229, cobre 321, ouro 541, rubi 3.068, diamante 3.376. Escreve o do minério que apanhas.');
+  else if(!useVal)notas.push('Sem preço ainda: escreve o preço de venda por unidade para ver o valor e o ganho por hora.');
   if(!f.medido)notas.push('Apanha e processamento são estimativas iguais às do aço; corrige-as se souberes os teus tempos (ficam guardadas neste aparelho).');
   document.getElementById('lapN').textContent=notas.join(' ')}
 vehS.onchange=()=>{store.set('veh',+vehS.value);lapsCalc()};
