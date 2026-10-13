@@ -63,6 +63,20 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
 .toggle-panel{display:none}
 .legs{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
 .legs b{color:var(--ink);font-weight:600}
+[hidden]{display:none!important}
+.laps{display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--line);padding-top:10px}
+.laps .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.laps label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-2)}
+.laps input{font:inherit;font-size:14px;width:100%;min-width:0;padding:6px 7px;border-radius:8px;border:1px solid var(--line);background:var(--chrome-2);color:var(--ink)}
+.laps input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.lt{width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums}
+.lt th{font-weight:600;color:var(--ink-2);font-size:11px;text-align:right;padding:3px 4px;border-bottom:1px solid var(--line)}
+.lt td{text-align:right;padding:5px 4px;border-bottom:1px solid var(--line)}
+.lt th:first-child,.lt td:first-child{text-align:left}
+.lt tr.best td{background:var(--chrome-2);font-weight:700}
+.lt tr.best td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.verd{font-size:13px;line-height:1.45;margin:0}
+.verd b{color:var(--ink)}
 @media (max-width:640px){
   .panel{left:8px;right:8px;width:auto;top:auto;bottom:calc(8px + env(safe-area-inset-bottom,0px));max-height:55%}
   .panel.min .sec.opt{display:none}
@@ -114,6 +128,18 @@ button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outlin
       <div><b id="ptime">–</b><span>de carro (aprox.)</span></div>
     </div>
     <ol class="legs" id="legs" hidden></ol>
+    <div class="laps" id="laps" hidden>
+      <div class="lab" style="margin:0">Voltas e tempo total</div>
+      <div class="row"><select id="veh" aria-label="Veículo"></select></div>
+      <div class="grid3">
+        <label>Preço / un.<input id="fPreco" type="number" min="0" step="1" inputmode="numeric" placeholder="?"></label>
+        <label>Apanha (min)<input id="fApanha" type="number" min="0" step="0.5" inputmode="decimal" title="Minutos para encher o veículo todo no campo"></label>
+        <label>Proc. (s/un.)<input id="fSeg" type="number" min="0" step="0.05" inputmode="decimal" title="Segundos de processamento por unidade"></label>
+      </div>
+      <table class="lt" id="lapT"></table>
+      <p class="verd" id="lapV"></p>
+      <p class="hint" id="lapN"></p>
+    </div>
   </div>
   <div class="sec opt">
     <div class="lab">Mostrar</div>
@@ -342,9 +368,64 @@ const PRESETS=[
  ['Maçã',['Campo de Maça','Processador de Maça']]];
 const presetS=document.getElementById('preset');
 PRESETS.forEach(([n,st],i)=>{const o=document.createElement('option');o.value=i;o.textContent=n+': '+st.map(x=>x.replace('*','')).join(' → ');presetS.appendChild(o)});
-function hideP(){document.getElementById('resP').hidden=true;document.getElementById('legs').hidden=true}
+/* ---------- voltas: tempo total com apanha e processamento ---------- */
+// pesos tirados dos ficheiros do Legacy; apanha = min para encher o veículo; seg = s de processamento por unidade
+const FARM={
+ 'Cocaína':{cru:'Folha de coca',fim:'Cocaína',wr:2,wp:1,preco:0,apanha:10,seg:0.2},
+ 'Heroína':{cru:'Papoula',fim:'Heroína',wr:2,wp:1,preco:0,apanha:10,seg:0.2},
+ 'Maconha':{cru:'Folha de maconha',fim:'Maconha',wr:2,wp:1,preco:0,apanha:10,seg:0.2},
+ 'Aço':{cru:'Aço bruto',fim:'Barra de aço',wr:1,wp:0.5,preco:280,apanha:10,seg:0.2,medido:true},
+ 'Madeira':{cru:'Tronco',fim:'Tábua',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
+ 'Areia / Vidro':{cru:'Areia',fim:'Vidro',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
+ 'Minérios':{cru:'Minério',fim:'Lingote',wr:1,wp:0.5,preco:0,apanha:10,seg:0.2},
+ 'Petróleo':{cru:'Petróleo bruto',fim:'Barril',wr:2,wp:1,preco:313,apanha:10,seg:0.2}};
+const VEH=[['Ural 4320 Transport Covered',1350],['Ural 4320 Transport',1050],['M923A1 Arsenal',900],['M923A1 Transport',650],
+ ['MiniTruck',400],['Boxtruck Freezer',400],['Boxtruck Tipper',250],['Gatoma',140],['S1203 Cargo',115],['UAZ452 Cargo',95],['Carro (40 kg)',40]];
+const vehS=document.getElementById('veh');
+VEH.forEach(([n,c],i)=>{const o=document.createElement('option');o.value=i;o.textContent=n+' · '+c+' kg';vehS.appendChild(o)});
+const store={get(k){try{return JSON.parse(localStorage.getItem('mapaLegacy:'+k))}catch(e){return null}},set(k,v){try{localStorage.setItem('mapaLegacy:'+k,JSON.stringify(v))}catch(e){}}};
+{const v=store.get('veh');if(v!=null&&VEH[v])vehS.value=v}
+let LAP=null; // {nome, tCP, tPS, tSC}
+const money=v=>v>=1e6?(v/1e6).toFixed(2).replace('.',',')+'M':v>=1e3?Math.round(v/1e3)+'k':String(Math.round(v));
+const hm=m=>{m=Math.round(m);return m<60?m+' min':Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')};
+function farmCfg(nome){const f=Object.assign({},FARM[nome]),u=store.get('farm:'+nome)||{};['preco','apanha','seg'].forEach(k=>{if(typeof u[k]==='number'&&isFinite(u[k]))f[k]=u[k]});return f}
+function lapsOpen(nome,tCP,tPS,tSC){if(!FARM[nome]){LAP=null;document.getElementById('laps').hidden=true;return}
+  LAP={nome,tCP,tPS,tSC};const f=farmCfg(nome);
+  document.getElementById('fPreco').value=f.preco||'';document.getElementById('fApanha').value=f.apanha;document.getElementById('fSeg').value=f.seg;
+  document.getElementById('laps').hidden=false;lapsCalc()}
+function lapsCalc(){if(!LAP)return;const f=farmCfg(LAP.nome),C=VEH[+vehS.value][1];
+  const rows=[];let units=0,coll=0,proc=0;
+  for(let k=1;k<=4;k++){
+    const livre=Math.max(0,C-units*f.wp);const raw=Math.floor(livre/f.wr+1e-9);
+    coll+=f.apanha*(raw*f.wr/C);proc+=raw*f.seg/60;units+=raw; // 1 cru → 1 processado
+    const drive=LAP.tCP+(k-1)*2*LAP.tCP+LAP.tPS+LAP.tSC;
+    const tot=drive+coll+proc,val=units*f.preco;
+    rows.push({k,units,drive,coll,proc,tot,val,ph:val/tot*60,uph:units/tot*60,raw});
+    if(raw===0)break}
+  const useVal=f.preco>0,key=useVal?'ph':'uph';
+  let best=rows[0];rows.forEach(r=>{if(r[key]>best[key]+1e-9)best=r});
+  document.getElementById('lapT').innerHTML='<tr><th>Voltas</th><th>'+f.fim+'</th><th>Tempo</th><th>Valor</th><th>Por hora</th></tr>'+
+    rows.map(r=>`<tr class="${r===best?'best':''}" title="Condução ${hm(r.drive)} · apanha ${hm(r.coll)} · processamento ${hm(r.proc)}"><td>${r.k}</td><td>${r.units.toLocaleString('pt-PT')}</td><td>${hm(r.tot)}</td><td>${useVal?money(r.val):'–'}</td><td>${useVal?money(r.ph):Math.round(r.uph)+' un.'}</td></tr>`).join('');
+  // veredicto: compensa a volta seguinte?
+  const parts=[];
+  for(let i=1;i<rows.length;i++){const a=rows[i-1],b=rows[i];
+    const extraT=b.tot-a.tot,extraU=b.units-a.units,taxa=(useVal?extraU*f.preco:extraU)/extraT*60;
+    const ok=taxa>=a[key];
+    parts.push(`${b.k}.ª volta: +${extraU.toLocaleString('pt-PT')} un. em +${hm(extraT)} (${useVal?money(taxa)+'/h':Math.round(taxa)+' un./h'}) → <b>${ok?'compensa':'não compensa'}</b>`)}
+  const b=best;
+  document.getElementById('lapV').innerHTML=`Melhor: <b>${b.k} volta${b.k>1?'s':''}</b> antes de vender — ${hm(b.tot)} no total (condução ${hm(b.drive)}, apanha ${hm(b.coll)}, processamento ${hm(b.proc)})${useVal?', '+money(b.val)+' por ciclo, <b>'+money(b.ph)+'/h</b>':''}.<br>`+parts.join('<br>');
+  const notas=[];
+  notas.push(`Cada volta carrega ${f.cru.toLowerCase()} até encher o espaço livre (${f.cru.toLowerCase()} ${String(f.wr).replace('.',',')} kg, ${f.fim.toLowerCase()} ${String(f.wp).replace('.',',')} kg). O tempo conta desde o campo até voltar ao campo depois de vender.`);
+  if(!useVal)notas.push('Sem preço ainda: escreve o preço de venda por unidade para ver o valor e o ganho por hora.');
+  if(!f.medido)notas.push('Apanha e processamento são estimativas iguais às do aço; corrige-as se souberes os teus tempos (ficam guardadas neste aparelho).');
+  document.getElementById('lapN').textContent=notas.join(' ')}
+vehS.onchange=()=>{store.set('veh',+vehS.value);lapsCalc()};
+[['fPreco','preco'],['fApanha','apanha'],['fSeg','seg']].forEach(([id,k])=>document.getElementById(id).oninput=e=>{if(!LAP)return;
+  const u=store.get('farm:'+LAP.nome)||{};const v=parseFloat(String(e.target.value).replace(',','.'));
+  if(isFinite(v)&&v>=0)u[k]=v;else delete u[k];store.set('farm:'+LAP.nome,u);lapsCalc()});
+function hideP(){document.getElementById('resP').hidden=true;document.getElementById('legs').hidden=true;document.getElementById('laps').hidden=true;LAP=null}
 function runPreset(){const [nome,st]=PRESETS[+presetS.value];
-  let stops=[];const pts=[],walks=[],marks=[],all=[],legs=[];let meters=0,mins=0;
+  let stops=[];const pts=[],walks=[],marks=[],all=[],legs=[],legMins=[];let meters=0,mins=0;
   for(let i=0;i<st.length;i++){const k=st[i];const cand=POI.filter(p=>p[0]===k.replace('*',''));
     if(!cand.length){alertLeg('Não encontrei '+k);return}
     if(i===0||!k.startsWith('*')){stops.push({n:cand[0][0],p:[cand[0][1],cand[0][2]]});continue}
@@ -354,15 +435,18 @@ function runPreset(){const [nome,st]=PRESETS[+presetS.value];
     stops.push({n:best.c[0]+' ('+near(best.c[1],best.c[2])+')',p:[best.c[1],best.c[2]]})}
   for(let i=0;i+1<stops.length;i++){const r=route(stops[i].p,stops[i+1].p);if(!r){alertLeg('Sem ligação por estrada entre '+stops[i].n+' e '+stops[i+1].n);return}
     r.pts.forEach((p,j)=>{const q=[p[0],p[1]];if(j===0)q.brk=true;pts.push(q)});
-    walks.push([r.raw[0],r.A],[r.raw[1],r.B]);meters+=r.meters;mins+=r.mins;all.push(...r.pts,...r.raw);
+    walks.push([r.raw[0],r.A],[r.raw[1],r.B]);meters+=r.meters;mins+=r.mins;legMins.push(r.mins);all.push(...r.pts,...r.raw);
     legs.push(`<b>${stops[i].n}</b> → <b>${stops[i+1].n}</b>: ${km(r.meters)} · ${mn(r.mins)}`)}
   stops.forEach((s,i)=>marks.push([s.p,String(i+1),i===0?'#2b8a3e':(i===stops.length-1?css('--accent'):'#e8590c')]));
   R={pts,walks,marks,meters,mins,all};
   document.getElementById('res').hidden=true;document.getElementById('rhint').textContent='';
   document.getElementById('resP').hidden=false;document.getElementById('pdist').textContent=km(meters);document.getElementById('ptime').textContent=mn(mins);
   const L=document.getElementById('legs');L.innerHTML=legs.map(x=>'<li>'+x+'</li>').join('');L.hidden=false;
+  if(stops.length===3&&FARM[nome]){const back=route(stops[2].p,stops[0].p);
+    if(back){legs.push(`<b>${stops[2].n}</b> → <b>${stops[0].n}</b> (regresso): ${km(back.meters)} · ${mn(back.mins)}`);L.innerHTML=legs.map(x=>'<li>'+x+'</li>').join('');
+      lapsOpen(nome,legMins[0],legMins[1],back.mins)}else lapsOpen('',0,0,0)}else lapsOpen('',0,0,0);
   fitTo(all);req()}
-function alertLeg(msg){document.getElementById('resP').hidden=true;R=null;req();const L=document.getElementById('legs');L.innerHTML='<li>'+msg+'</li>';L.hidden=false}
+function alertLeg(msg){document.getElementById('resP').hidden=true;document.getElementById('laps').hidden=true;LAP=null;R=null;req();const L=document.getElementById('legs');L.innerHTML='<li>'+msg+'</li>';L.hidden=false}
 document.getElementById('goP').onclick=runPreset;
 document.getElementById('go').onclick=()=>run(true);
 document.getElementById('swap').onclick=()=>{const a=fromS.value,b=toS.value,ca=custom.A;custom.A=custom.B;custom.B=ca;fromS.value=b;toS.value=a;if(R)run(false)};
